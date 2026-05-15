@@ -1,0 +1,218 @@
+blueprint:
+  name: Réveil Android piloté par calendriers
+  description: >
+    Programme une alarme Android via Home Assistant Companion selon des calendriers.
+    Par défaut, l'alarme est programmée tous les jours à l'heure choisie.
+    Si un événement existe dans un calendrier exclusif, l'alarme par défaut est annulée.
+    Mais si un événement existe dans un calendrier inclusif avant l'heure limite, une alarme
+    est programmée avant le premier événement.
+
+  domain: automation
+
+  input:
+    trigger_time:
+      name: Heure de calcul
+      description: Heure à laquelle Home Assistant calcule et programme l'alarme du lendemain.
+      default: "20:00:00"
+      selector:
+        time:
+
+    exclusive_calendars:
+      name: Calendriers exclusifs
+      description: >
+        Calendriers qui indiquent qu'il ne faut PAS programmer l'alarme par défaut.
+        Exemple : jours fériés, vacances scolaires, pas école, mercredi pédagogique.
+      selector:
+        entity:
+          filter:
+            domain: calendar
+          multiple: true
+
+    inclusive_calendars:
+      name: Calendriers inclusifs
+      description: >
+        Calendriers contenant les rendez-vous qui peuvent forcer une alarme,
+        même pendant un jour exclusif.
+      selector:
+        entity:
+          filter:
+            domain: calendar
+          multiple: true
+
+    default_alarm_time:
+      name: Heure de réveil par défaut
+      description: Heure normale du réveil quand il n'y a pas d'exception.
+      default: "06:00:00"
+      selector:
+        time:
+
+    inclusive_until_time:
+      name: Heure limite des événements inclusifs
+      description: >
+        Seuls les événements inclusifs avant cette heure seront pris en compte.
+        Par exemple 11:00 pour ne prendre que les rendez-vous du matin.
+      default: "11:00:00"
+      selector:
+        time:
+
+    lead_time_minutes:
+      name: Délai avant le premier événement
+      description: Nombre de minutes entre l'alarme et le premier rendez-vous inclusif.
+      default: 90
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 5
+          unit_of_measurement: minutes
+          mode: box
+
+    smartphone_notify_services:
+      name: Smartphones à programmer
+      description: >
+        Services notify des smartphones, un par ligne ou séparés par des virgules.
+        Exemple :
+        notify.mobile_app_s23ultra
+      default: "notify.mobile_app_s23ultra"
+      selector:
+        text:
+          multiline: true
+
+    reload_calendar_before_check:
+      name: Recharger l'intégration calendrier avant lecture
+      description: >
+        Utile avec Google Calendar si les événements récents ne remontent pas immédiatement.
+        Le blueprint recharge l'entrée de configuration du premier calendrier sélectionné.
+      default: true
+      selector:
+        boolean:
+
+    reload_delay_seconds:
+      name: Attente après rechargement
+      description: Temps d'attente après le rechargement de l'intégration calendrier.
+      default: 15
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: secondes
+          mode: box
+
+mode: single
+
+trigger:
+  - platform: time
+    at: !input trigger_time
+
+variables:
+  exclusive_calendars: !input exclusive_calendars
+  inclusive_calendars: !input inclusive_calendars
+  default_alarm_time: !input default_alarm_time
+  inclusive_until_time: !input inclusive_until_time
+  lead_time_minutes: !input lead_time_minutes
+  smartphone_notify_services: !input smartphone_notify_services
+  reload_calendar_before_check: !input reload_calendar_before_check
+  reload_delay_seconds: !input reload_delay_seconds
+
+  notify_services: >-
+    {{
+      smartphone_notify_services
+        .replace('\n', ',')
+        .split(',')
+        | map('trim')
+        | reject('eq', '')
+        | list
+    }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ reload_calendar_before_check | bool(false) }}"
+        sequence:
+          - action: homeassistant.reload_config_entry
+            target:
+              entity_id: "{{ (exclusive_calendars + inclusive_calendars)[0] }}"
+
+          - delay:
+              seconds: "{{ reload_delay_seconds | int(15) }}"
+
+  - action: calendar.get_events
+    target:
+      entity_id: !input exclusive_calendars
+    data:
+      start_date_time: "{{ (now().date() + timedelta(days=1)).strftime('%Y-%m-%d') }} 00:00:00"
+      end_date_time: "{{ (now().date() + timedelta(days=2)).strftime('%Y-%m-%d') }} 00:00:00"
+    response_variable: exclusive_events
+
+  - action: calendar.get_events
+    target:
+      entity_id: !input inclusive_calendars
+    data:
+      start_date_time: "{{ (now().date() + timedelta(days=1)).strftime('%Y-%m-%d') }} 00:00:00"
+      end_date_time: "{{ (now().date() + timedelta(days=1)).strftime('%Y-%m-%d') }} {{ inclusive_until_time }}"
+    response_variable: inclusive_events
+
+  - variables:
+      exception_reveil: >-
+        {% set ns = namespace(count=0) %}
+        {% for cal in exclusive_calendars %}
+          {% set ns.count = ns.count + (exclusive_events[cal].events | default([]) | count) %}
+        {% endfor %}
+        {{ ns.count > 0 }}
+
+      premier_rdv: >-
+        {% set ns = namespace(events=[]) %}
+        {% for cal in inclusive_calendars %}
+          {% for e in inclusive_events[cal].events | default([]) %}
+            {% if 'T' in (e.start | string) %}
+              {% set ns.events = ns.events + [e] %}
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+        {% set sorted_events = ns.events | sort(attribute='start') | list %}
+        {{ sorted_events[0].start if sorted_events | count > 0 else '' }}
+
+      alarm_hour: >-
+        {% if (exception_reveil | bool(false)) and (premier_rdv | trim != '') %}
+          {{ (as_datetime(premier_rdv | trim) - timedelta(minutes=lead_time_minutes | int)).hour }}
+        {% else %}
+          {{ default_alarm_time.split(':')[0] | int }}
+        {% endif %}
+
+      alarm_minute: >-
+        {% if (exception_reveil | bool(false)) and (premier_rdv | trim != '') %}
+          {{ (as_datetime(premier_rdv | trim) - timedelta(minutes=lead_time_minutes | int)).minute }}
+        {% else %}
+          {{ default_alarm_time.split(':')[1] | int }}
+        {% endif %}
+
+      should_program_alarm: >-
+        {{
+          not (
+            (exception_reveil | bool(false))
+            and
+            (premier_rdv | trim == '')
+          )
+        }}
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ not (should_program_alarm | bool(false)) }}"
+        sequence:
+          - stop: "Pas d'alarme programmée : calendrier exclusif présent et aucun rendez-vous inclusif."
+
+    default:
+      - repeat:
+          for_each: "{{ notify_services }}"
+          sequence:
+            - action: "{{ repeat.item }}"
+              data:
+                message: command_activity
+                data:
+                  intent_action: android.intent.action.SET_ALARM
+                  intent_extras: >-
+                    android.intent.extra.alarm.HOUR:{{ alarm_hour | trim }}:int,android.intent.extra.alarm.MINUTES:{{ alarm_minute | trim }}:int,android.intent.extra.alarm.SKIP_UI:true:boolean
+                    
