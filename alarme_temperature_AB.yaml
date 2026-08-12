@@ -1,8 +1,8 @@
 blueprint:
   name: Alarme température avec seuils et temporisation
   description: >
-    Déclenche un script lorsque la température passe sous le seuil
-    minimum ou au-dessus du seuil maximum.
+    Déclenche un script lorsque la température passe sous le seuil minimum,
+    au-dessus du seuil maximum ou lorsque le capteur devient indisponible.
   domain: automation
 
   input:
@@ -46,7 +46,7 @@ blueprint:
 
     notification_script:
       name: Script de notification
-      description: "Script à exécuter lorsque l'alarme température se déclenche"
+      description: "Script à exécuter en cas d'alarme"
       selector:
         entity:
           filter:
@@ -80,44 +80,105 @@ triggers:
           entity: !input min_temperature
     id: min
 
+  - trigger: state
+    entity_id: !input temperature_sensor
+    to: "unavailable"
+    id: unavailable
+
 conditions: []
 
 actions:
-  - action: script.turn_on
-    target:
-      entity_id: !input notification_script
+  - choose:
 
-  - if:
-      - condition: trigger
-        id:
-          - min
-    then:
-      - wait_template: >
-          {{
-            states(temperature_sensor) | float(0)
-            >=
-            states(min_temperature) | float(0)
-          }}
-        timeout:
-          hours: 0
-          minutes: "{{ states(tps_min) | int(0) }}"
-          seconds: 0
-          milliseconds: 0
-        continue_on_timeout: false
+      # ==========================================================
+      # TEMPÉRATURE TROP BASSE
+      # ==========================================================
+      - conditions:
+          - condition: trigger
+            id: min
 
-    else:
-      - wait_template: >
-          {{
-            states(temperature_sensor) | float(0)
-            <=
-            states(max_temperature) | float(0)
-          }}
-        timeout:
-          hours: 0
-          minutes: "{{ states(tps_max) | int(0) }}"
-          seconds: 0
-          milliseconds: 0
-        continue_on_timeout: false
+        sequence:
+          - action: script.turn_on
+            target:
+              entity_id: !input notification_script
+
+          - wait_template: >
+              {{
+                states(temperature_sensor) == 'unavailable'
+                or
+                states(temperature_sensor) | float(0)
+                >=
+                states(min_temperature) | float(0)
+              }}
+            timeout:
+              hours: 0
+              minutes: "{{ states(tps_min) | int(0) }}"
+              seconds: 0
+              milliseconds: 0
+            continue_on_timeout: false
+
+          # Si l'attente s'est terminée parce que le capteur
+          # est devenu indisponible, on déclenche à nouveau l'alarme.
+          - if:
+              - condition: template
+                value_template: >
+                  {{ states(temperature_sensor) == 'unavailable' }}
+            then:
+              - action: script.turn_on
+                target:
+                  entity_id: !input notification_script
+
+
+      # ==========================================================
+      # TEMPÉRATURE TROP HAUTE
+      # ==========================================================
+      - conditions:
+          - condition: trigger
+            id: max
+
+        sequence:
+          - action: script.turn_on
+            target:
+              entity_id: !input notification_script
+
+          - wait_template: >
+              {{
+                states(temperature_sensor) == 'unavailable'
+                or
+                states(temperature_sensor) | float(0)
+                <=
+                states(max_temperature) | float(0)
+              }}
+            timeout:
+              hours: 0
+              minutes: "{{ states(tps_max) | int(0) }}"
+              seconds: 0
+              milliseconds: 0
+            continue_on_timeout: false
+
+          # Si l'attente s'est terminée parce que le capteur
+          # est devenu indisponible, on déclenche à nouveau l'alarme.
+          - if:
+              - condition: template
+                value_template: >
+                  {{ states(temperature_sensor) == 'unavailable' }}
+            then:
+              - action: script.turn_on
+                target:
+                  entity_id: !input notification_script
+
+
+      # ==========================================================
+      # CAPTEUR INDISPONIBLE
+      # ==========================================================
+      - conditions:
+          - condition: trigger
+            id: unavailable
+
+        sequence:
+          - action: script.turn_on
+            target:
+              entity_id: !input notification_script
 
 mode: single
 max_exceeded: silent
