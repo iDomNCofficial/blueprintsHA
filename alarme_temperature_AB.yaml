@@ -46,14 +46,14 @@ blueprint:
 
     notification_service:
       name: Service de notification
-      description: "Exemple : notify.mobile_app_tabfroidstm"
+      description: "Exemple notify.mobile_app_tabfroidstm"
       default: notify.mobile_app_tabfroidstm
       selector:
         text:
 
     notification_tag:
       name: Tag de notification
-      description: "Exemple : alarme_temperature"
+      description: "Exemple alarme_temperature"
       default: alarme_temperature
       selector:
         text:
