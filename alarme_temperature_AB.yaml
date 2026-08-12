@@ -3,7 +3,6 @@ blueprint:
   description: >
     Déclenche une notification lorsque la température passe sous le seuil
     minimum ou au-dessus du seuil maximum.
-
   domain: automation
 
   input:
@@ -31,7 +30,7 @@ blueprint:
 
     tps_min:
       name: Temporisation alarme basse
-      description: Durée en minutes
+      description: "Durée en minutes"
       selector:
         entity:
           filter:
@@ -39,7 +38,7 @@ blueprint:
 
     tps_max:
       name: Temporisation alarme haute
-      description: Durée en minutes
+      description: "Durée en minutes"
       selector:
         entity:
           filter:
@@ -47,18 +46,17 @@ blueprint:
 
     notification_service:
       name: Service de notification
-      description: Exemple : notify.mobile_app_tabfroidstm
+      description: "Exemple : notify.mobile_app_tabfroidstm"
       default: notify.mobile_app_tabfroidstm
       selector:
         text:
 
     notification_tag:
       name: Tag de notification
-      description: Exemple : alarme_temperature
+      description: "Exemple : alarme_temperature"
       default: alarme_temperature
       selector:
         text:
-
 
 variables:
   temperature_sensor: !input temperature_sensor
@@ -69,9 +67,7 @@ variables:
   notification_service: !input notification_service
   notification_tag: !input notification_tag
 
-
 triggers:
-
   - trigger: temperature.changed
     target:
       entity_id: !input temperature_sensor
@@ -92,12 +88,9 @@ triggers:
           entity: !input min_temperature
     id: min
 
-
 conditions: []
 
-
 actions:
-
   - action: "{{ notification_service }}"
     data:
       data:
@@ -113,9 +106,7 @@ actions:
       - condition: trigger
         id:
           - min
-
     then:
-
       - wait_template: >
           {{
             states(temperature_sensor) | float(0)
@@ -130,7 +121,6 @@ actions:
         continue_on_timeout: false
 
     else:
-
       - wait_template: >
           {{
             states(temperature_sensor) | float(0)
@@ -143,7 +133,6 @@ actions:
           seconds: 0
           milliseconds: 0
         continue_on_timeout: false
-
 
 mode: single
 max_exceeded: silent
