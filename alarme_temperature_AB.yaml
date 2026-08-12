@@ -1,7 +1,7 @@
 blueprint:
   name: Alarme température avec seuils et temporisation
   description: >
-    Déclenche une notification lorsque la température passe sous le seuil
+    Déclenche un script lorsque la température passe sous le seuil
     minimum ou au-dessus du seuil maximum.
   domain: automation
 
@@ -44,19 +44,13 @@ blueprint:
           filter:
             - domain: input_number
 
-    notification_service:
-      name: Service de notification
-      description: "Exemple notify.mobile_app_tabfroidstm"
-      default: notify.mobile_app_tabfroidstm
+    notification_script:
+      name: Script de notification
+      description: "Script à exécuter lorsque l'alarme température se déclenche"
       selector:
-        text:
-
-    notification_tag:
-      name: Tag de notification
-      description: "Exemple alarme_temperature"
-      default: alarme_temperature
-      selector:
-        text:
+        entity:
+          filter:
+            - domain: script
 
 variables:
   temperature_sensor: !input temperature_sensor
@@ -64,8 +58,6 @@ variables:
   max_temperature: !input max_temperature
   tps_min: !input tps_min
   tps_max: !input tps_max
-  notification_service: !input notification_service
-  notification_tag: !input notification_tag
 
 triggers:
   - trigger: temperature.changed
@@ -91,16 +83,9 @@ triggers:
 conditions: []
 
 actions:
-  - action: "{{ notification_service }}"
-    data:
-      data:
-        ttl: 0
-        priority: high
-        channel: alarm_stream
-        tag: "{{ notification_tag }}"
-        persistent: true
-        sticky: true
-      message: "Alarme température"
+  - action: script.turn_on
+    target:
+      entity_id: !input notification_script
 
   - if:
       - condition: trigger
