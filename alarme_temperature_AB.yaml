@@ -1,0 +1,149 @@
+blueprint:
+  name: Alarme température avec seuils et temporisation
+  description: >
+    Déclenche une notification lorsque la température passe sous le seuil
+    minimum ou au-dessus du seuil maximum.
+
+  domain: automation
+
+  input:
+    temperature_sensor:
+      name: Capteur de température
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+
+    min_temperature:
+      name: Seuil minimum
+      selector:
+        entity:
+          filter:
+            - domain: input_number
+
+    max_temperature:
+      name: Seuil maximum
+      selector:
+        entity:
+          filter:
+            - domain: input_number
+
+    tps_min:
+      name: Temporisation alarme basse
+      description: Durée en minutes
+      selector:
+        entity:
+          filter:
+            - domain: input_number
+
+    tps_max:
+      name: Temporisation alarme haute
+      description: Durée en minutes
+      selector:
+        entity:
+          filter:
+            - domain: input_number
+
+    notification_service:
+      name: Service de notification
+      description: Exemple : notify.mobile_app_tabfroidstm
+      default: notify.mobile_app_tabfroidstm
+      selector:
+        text:
+
+    notification_tag:
+      name: Tag de notification
+      description: Exemple : alarme_temperature
+      default: alarme_temperature
+      selector:
+        text:
+
+
+variables:
+  temperature_sensor: !input temperature_sensor
+  min_temperature: !input min_temperature
+  max_temperature: !input max_temperature
+  tps_min: !input tps_min
+  tps_max: !input tps_max
+  notification_service: !input notification_service
+  notification_tag: !input notification_tag
+
+
+triggers:
+
+  - trigger: temperature.changed
+    target:
+      entity_id: !input temperature_sensor
+    options:
+      threshold:
+        type: above
+        value:
+          entity: !input max_temperature
+    id: max
+
+  - trigger: temperature.changed
+    target:
+      entity_id: !input temperature_sensor
+    options:
+      threshold:
+        type: below
+        value:
+          entity: !input min_temperature
+    id: min
+
+
+conditions: []
+
+
+actions:
+
+  - action: "{{ notification_service }}"
+    data:
+      data:
+        ttl: 0
+        priority: high
+        channel: alarm_stream
+        tag: "{{ notification_tag }}"
+        persistent: true
+        sticky: true
+      message: "Alarme température"
+
+  - if:
+      - condition: trigger
+        id:
+          - min
+
+    then:
+
+      - wait_template: >
+          {{
+            states(temperature_sensor) | float(0)
+            >=
+            states(min_temperature) | float(0)
+          }}
+        timeout:
+          hours: 0
+          minutes: "{{ states(tps_min) | int(0) }}"
+          seconds: 0
+          milliseconds: 0
+        continue_on_timeout: false
+
+    else:
+
+      - wait_template: >
+          {{
+            states(temperature_sensor) | float(0)
+            <=
+            states(max_temperature) | float(0)
+          }}
+        timeout:
+          hours: 0
+          minutes: "{{ states(tps_max) | int(0) }}"
+          seconds: 0
+          milliseconds: 0
+        continue_on_timeout: false
+
+
+mode: single
+max_exceeded: silent
